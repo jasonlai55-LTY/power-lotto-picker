@@ -639,7 +639,17 @@ function gasProxyUrl(targetUrl){
   const joiner = GAS_PROXY_BASE.includes("?") ? "&" : "?";
   return `${GAS_PROXY_BASE}${joiner}url=${encodeURIComponent(targetUrl)}`;
 }
+async function gasCall(action){
+  const joiner = GAS_PROXY_BASE.includes("?") ? "&" : "?";
+  const url = `${GAS_PROXY_BASE}${joiner}action=${encodeURIComponent(action)}`;
+  const res = await fetch(url, { cache:"no-store" });
+  if (!res.ok) throw new Error(`GAS 呼叫失敗：HTTP ${res.status}`);
+  const j = await res.json();
+  if (!j.ok) throw new Error(j.error || "GAS 回傳失敗");
+  return j;
+}
 
+  
 async function fetchText(targetUrl){
   const useProxy = document.getElementById("chkUseProxy").checked;
   const finalUrl = useProxy ? gasProxyUrl(targetUrl) : targetUrl;
@@ -721,24 +731,36 @@ function parseLatestFromCTBC(html){
 async function appendLatest(){
   const btn = document.getElementById("btnFetchLatest");
   btn.disabled = true;
-  btn.textContent = "抓取中…";
+  btn.textContent = "寫入中…";
 
   try{
-    const html = await fetchText(LATEST_SOURCE_URL);
-    const latest = parseLatestFromCTBC(html);
+    // 1) 叫 GAS 抓最新 + 寫進 Sheet
+    const r1 = await gasCall("append_latest");
 
-    const exists = rows.some(r=>r.draw_id === latest.draw_id);
-    if (!exists){
-      rows = uniqByDrawId(rows.concat([latest]));
-      setKPI();
-      renderCharts();
-      alert(`已追加最新一期：${latest.draw_id}\n${toISODate(latest.draw_date)}\n${latest.n.join(", ")} + ${pad2(latest.s)}`);
+    // 2) 再把 Sheet 內「完整資料」拉回來更新前端 rows
+    const r2 = await gasCall("export");
+
+    // GAS export 出來的欄位是 draw_id, draw_date(yyyy-mm-dd), n1..n6, s
+    rows = r2.data.map(x => ({
+      draw_id: String(x.draw_id),
+      draw_date: parseDateFlexible(String(x.draw_date)),
+      n: [x.n1,x.n2,x.n3,x.n4,x.n5,x.n6].map(Number),
+      s: Number(x.s)
+    }));
+
+    rows = uniqByDrawId(rows);
+    setKPI();
+    renderCharts();
+
+    if (r1.inserted){
+      alert(`已寫入並更新：${r1.latest.draw_id}\n${r1.latest.draw_date}\n${r1.latest.n.join(", ")} + ${pad2(r1.latest.s)}`);
     } else {
-      alert(`你的資料已包含最新一期：${latest.draw_id}`);
+      alert(`你的資料已包含最新一期：${r1.latest.draw_id}\n（已同步最新資料）`);
     }
+
   } catch(e){
     console.error(e);
-    alert(`抓取/解析失敗：\n${e.message}\n\n請確認：\n1) GAS_PROXY_BASE 已正確填入\n2) 你的 GAS 網路應用程式已部署且可公開存取\n3) 來源頁版面若改動，可能需調整解析規則`);
+    alert(`更新失敗：\n${e.message}\n\n請確認：\n1) GAS 已部署為 Web App（Anyone）\n2) GAS_PROXY_BASE 是最新 /exec\n3) GAS 已授權 UrlFetch + Spreadsheet`);
   } finally {
     btn.disabled = false;
     btn.textContent = "自動抓最新一期並追加";
@@ -862,12 +884,31 @@ document.getElementById("alphaVal").textContent = Number(document.getElementById
     await loadCsvFromUrl(DEFAULT_CSV_URL);
   } catch(e){
     console.error(e);
+    // Boot：優先讀 GAS Sheet（分享給別人也不用匯入 CSV）
+(async function boot(){
+  try{
+    const r = await gasCall("export");
+    rows = r.data.map(x => ({
+      draw_id: String(x.draw_id),
+      draw_date: parseDateFlexible(String(x.draw_date)),
+      n: [x.n1,x.n2,x.n3,x.n4,x.n5,x.n6].map(Number),
+      s: Number(x.s)
+    }));
+    rows = uniqByDrawId(rows);
+    setKPI();
+    renderCharts();
+  } catch(e){
+    console.warn("boot export failed, fallback to demo", e);
     loadDemo();
+  }
+})();
+;
     alert("站內 5 年資料載入失敗，已改用範例資料。\n\n" + e.message + "\n\n請確認 repo 同層存在 datawl_5y.csv（UTF-8）");
   }
 })();
 </script>
 </body>
 </html>
+
 
 
