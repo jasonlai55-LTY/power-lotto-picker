@@ -633,12 +633,11 @@ function renderPreview(main, sec){
 
 /** ========= Latest fetch + append (via GAS Proxy) ========= */
 function gasProxyUrl(targetUrl){
-  if (!GAS_PROXY_BASE){
-    throw new Error("你還沒設定 GAS_PROXY_BASE（請把它換成你的 GAS Web App URL）");
-  }
+  if (!GAS_PROXY_BASE) throw new Error("GAS_PROXY_BASE 未設定");
   const joiner = GAS_PROXY_BASE.includes("?") ? "&" : "?";
-  return `${GAS_PROXY_BASE}${joiner}url=${encodeURIComponent(targetUrl)}`;
+  return `${GAS_PROXY_BASE}${joiner}action=proxy&url=${encodeURIComponent(targetUrl)}`;
 }
+
 async function gasCall(action){
   const joiner = GAS_PROXY_BASE.includes("?") ? "&" : "?";
   const url = `${GAS_PROXY_BASE}${joiner}action=${encodeURIComponent(action)}`;
@@ -873,7 +872,8 @@ document.getElementById("alphaVal").textContent = Number(document.getElementById
     proxyTxt.textContent = base;
 
     const joiner = base.includes("?") ? "&" : "?";
-    const testUrl = `${base}${joiner}url=${encodeURIComponent(LATEST_SOURCE_URL)}`;
+    const testUrl = `${base}${joiner}action=proxy&url=${encodeURIComponent(LATEST_SOURCE_URL)}`;
+
     testTxt.textContent = testUrl;
 
     const d = document.getElementById("defaultCsvTxt");
@@ -909,6 +909,7 @@ document.getElementById("alphaVal").textContent = Number(document.getElementById
 </script>
 </body>
 </html>
+
 
 
 
