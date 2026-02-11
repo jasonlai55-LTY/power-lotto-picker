@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>威力彩選號器（頻率/分布 + 加權蒙地卡羅 + GAS Proxy 自動更新）</title>
+  <title>威力彩選號器（Sheet資料庫 + 自動更新 + 頻率/分布 + 加權蒙地卡羅）</title>
 
   <!-- Chart.js (CDN) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -30,7 +30,7 @@
     .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
     .row > * { flex: 0 0 auto; }
     label { font-size: 13px; color: var(--muted); }
-    input, select, button, textarea {
+    input, select, button {
       background: rgba(9,15,28,.8); color: var(--text);
       border: 1px solid rgba(35,52,87,.9); border-radius: 10px;
       padding: 9px 10px; font-size: 13px;
@@ -58,6 +58,10 @@
     .hr { height:1px; background: rgba(35,52,87,.9); margin: 12px 0; }
     .small { font-size: 12px; color: var(--muted); }
     details summary { cursor:pointer; }
+
+    .statusline { margin-top: 10px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+    .dot { width:10px; height:10px; border-radius:999px; background:#4ade80; display:inline-block; }
+    .dot.bad { background:#fb7185; }
   </style>
 </head>
 
@@ -65,29 +69,34 @@
 <div class="wrap">
   <div class="top">
     <div class="title">
-      <h1>威力彩選號器（近 5 年頻率/分布 + 加權蒙地卡羅 + 自動抓最新一期）</h1>
-      <div class="sub">冷號定義：<b>出現頻率低</b>（A）｜第一區 1–38 抽 6、不重複；第二區 1–8 抽 1</div>
+      <h1>威力彩選號器（Sheet資料庫 + 自動更新 + 近5年頻率/分布 + 加權蒙地卡羅）</h1>
+      <div class="sub">
+        冷號定義：<b>出現頻率低</b>（A）｜第一區 1–38 抽 6、不重複；第二區 1–8 抽 1｜
+        <span class="mono">資料來源：你的 Google Sheet（由 GAS 維護）</span>
+      </div>
     </div>
     <div class="row">
-      <button id="btnLoadDemo">載入內建範例資料</button>
-      <label class="pill">
-        匯入歷史 CSV
-        <input id="csvFile" type="file" accept=".csv,text/csv" />
-      </label>
-      <button class="primary" id="btnFetchLatest">自動抓最新一期並追加</button>
+      <button class="primary" id="btnReload">重新載入（從 Sheet）</button>
+      <button class="primary" id="btnFetchLatest">自動抓最新一期並追加（寫入 Sheet）</button>
     </div>
   </div>
 
   <div class="kpi">
-    <div class="pill">資料筆數：<span id="kpiRows" class="mono">0</span></div>
+    <div class="pill">資料筆數：<span id="kpiRows" class="mono">-</span></div>
     <div class="pill">資料區間：<span id="kpiRange" class="mono">-</span></div>
     <div class="pill">最新期別：<span id="kpiLatest" class="mono">-</span></div>
-    <div class="pill">抓取來源：<span class="mono">lotto.ctbcbank.com</span></div>
+    <div class="pill">後端：<span class="mono">GAS Web App + Google Sheet</span></div>
+  </div>
+
+  <div class="statusline">
+    <span id="connDot" class="dot bad"></span>
+    <span class="small muted">連線狀態：</span>
+    <span id="connText" class="small mono">尚未連線</span>
   </div>
 
   <div class="grid">
     <div class="card">
-      <h2>頻率圖（近 5 年 / 你載入的資料範圍）</h2>
+      <h2>頻率圖（近 5 年 / 以你 Sheet 內資料為準）</h2>
       <div class="charts2">
         <div class="card" style="padding:10px;">
           <div class="muted small">第一區 1–38 出現次數</div>
@@ -168,45 +177,36 @@
 
       <div class="hr"></div>
 
-      <details open>
-        <summary class="small">Proxy 設定（建議：GAS Proxy）</summary>
-        <div class="small" style="margin-top:8px;">
-          本機直接開 HTML（file://）抓 https 網站常被瀏覽器 CORS 擋；因此建議用你自己的 GAS Proxy。
-        </div>
-
-        <div class="row" style="margin-top:10px;">
-          <label><input type="checkbox" id="chkUseProxy" checked /> 使用 Proxy 抓取最新一期</label>
-        </div>
-
-        <div class="small muted" style="margin-top:10px;">
-          你的 GAS Web App URL（請在程式碼最上方的 <span class="mono">GAS_PROXY_BASE</span> 置換）：<br/>
-          <span class="mono" id="proxyUrlTxt"></span>
-        </div>
-
+      <details>
+        <summary class="small">後端設定（GAS Web App URL）</summary>
         <div class="small muted" style="margin-top:8px;">
-          測試 Proxy：在瀏覽器打開：<br/>
-          <span class="mono" id="proxyTestUrl"></span>
+          你只需要改 <span class="mono">GAS_BASE</span> 一行。別人拿到 GitHub Pages 連結後，<b>不需要匯入任何 CSV</b>，資料會直接從你的 Sheet 讀取。
         </div>
-
         <div class="small muted" style="margin-top:10px;">
-          站內預設資料：<span class="mono" id="defaultCsvTxt"></span>
+          GAS Web App URL：<br/>
+          <span class="mono" id="gasTxt"></span>
+        </div>
+        <div class="small muted" style="margin-top:8px;">
+          測試（export）：<br/>
+          <span class="mono" id="gasTest"></span>
         </div>
       </details>
+
     </div>
   </div>
 </div>
 
 <script>
 /** =========================
- *  你只需要改這兩行（若你檔名不同也改）
+ *  你只需要改這一行！
+ *  把 GAS_BASE 換成你部署後的 Web App /exec URL
+ *  例如：https://script.google.com/macros/s/XXXXX/exec
  *  ========================= */
-const GAS_PROXY_BASE = "https://script.google.com/macros/s/AKfycbxUsoAeLxDcvRFCkCJ44gKbY3oXr694KYX_mdlhno3OdekivzHsjqUI6a4C3wUEBMlr/exec";
-const DEFAULT_CSV_URL = "./datawl_5y.csv"; // ✅ 把 5 年 CSV 上傳到 repo，同層放這個檔名
+const GAS_BASE = "https://script.google.com/macros/s/AKfycbwh0gqPHGeLa_QMA8CPch4aC4nixrceRVo9CDEcss_y9wN4KdIhIKriG1AltB7OcOAq/exec"; // ← 改這裡（你的 /exec）
 
 /** ========= Config ========= */
 const MAIN_MAX = 38;
 const SECOND_MAX = 8;
-const LATEST_SOURCE_URL = "https://lotto.ctbcbank.com/result_all.htm";
 
 /** ========= State ========= */
 let rows = []; // {draw_id, draw_date(Date), n:[6], s}
@@ -222,9 +222,11 @@ function parseDateFlexible(s){
   const t = (s||"").trim();
   if (!t) return null;
 
+  // YYYY-MM-DD or YYYY/MM/DD
   let m = t.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
   if (m) return new Date(Number(m[1]), Number(m[2])-1, Number(m[3]));
 
+  // ROC: "115 年 2 月 9 日" (no "民國" also accepted)
   m = t.match(/(\d{2,3})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
   if (m){
     const roc = Number(m[1]);
@@ -234,112 +236,6 @@ function parseDateFlexible(s){
 
   const d = new Date(t);
   return isNaN(d.getTime()) ? null : d;
-}
-
-/** 通用 CSV split（逗號/TAB/分號的邏輯在 csvParse 內處理）*/
-function splitByDelim(line, delim){
-  const res = [];
-  let cur = "", inQ = false;
-  for (let i=0;i<line.length;i++){
-    const ch = line[i];
-    if (ch === '"'){
-      if (inQ && line[i+1] === '"'){ cur += '"'; i++; }
-      else inQ = !inQ;
-    } else if (!inQ && ch === delim){
-      res.push(cur); cur = "";
-    } else {
-      cur += ch;
-    }
-  }
-  res.push(cur);
-  return res;
-}
-
-function csvParse(text){
-  const raw = text.replace(/\r/g,"");
-  const lines = raw.split("\n").filter(l => l.trim().length);
-  if (!lines.length) return [];
-
-  const clean = (s)=>String(s ?? "")
-    .replace(/^\uFEFF/,"")
-    .replace(/\u3000/g," ")
-    .trim();
-
-  // 自動偵測分隔符：, / \t / ;
-  const headLine = lines[0];
-  const cComma = (headLine.match(/,/g) || []).length;
-  const cTab   = (headLine.match(/\t/g) || []).length;
-  const cSemi  = (headLine.match(/;/g) || []).length;
-  const delim = (cTab > cComma && cTab > cSemi) ? "\t" : (cSemi > cComma ? ";" : ",");
-
-  const normKey = (k)=>clean(k).toLowerCase().replace(/\s+/g,"").replace(/[_\-\/]/g,"");
-
-  const headerRaw = splitByDelim(lines[0], delim).map(clean);
-  const headerN   = headerRaw.map(normKey);
-
-  function findIdxByNames(...names){
-    for (const nm of names){
-      const t = normKey(nm);
-      let i = headerN.indexOf(t);
-      if (i !== -1) return i;
-      i = headerRaw.findIndex(h => clean(h) === nm);
-      if (i !== -1) return i;
-    }
-    return -1;
-  }
-
-  const idx = {
-    game:      findIdxByNames("遊戲名稱","遊戲"),
-    draw_id:   findIdxByNames("期別","期號","期數"),
-    draw_date: findIdxByNames("開獎日期","日期"),
-    n1:        findIdxByNames("獎號1","獎號 1","號碼1","號碼 1"),
-    n2:        findIdxByNames("獎號2","獎號 2","號碼2","號碼 2"),
-    n3:        findIdxByNames("獎號3","獎號 3","號碼3","號碼 3"),
-    n4:        findIdxByNames("獎號4","獎號 4","號碼4","號碼 4"),
-    n5:        findIdxByNames("獎號5","獎號 5","號碼5","號碼 5"),
-    n6:        findIdxByNames("獎號6","獎號 6","號碼6","號碼 6"),
-    s:         findIdxByNames("第二區","第2區","特別號"),
-  };
-
-  const need = ["draw_id","draw_date","n1","n2","n3","n4","n5","n6","s"];
-  const missing = need.filter(k => idx[k] === -1);
-  if (missing.length){
-    throw new Error(
-      `CSV 欄位辨識不到：${missing.join(", ")}。\n` +
-      `偵測到分隔符：${delim === "\t" ? "TAB(\\t)" : delim}\n` +
-      `第一列欄名解析結果：${headerRaw.join(" | ")}`
-    );
-  }
-
-  const toNum = (v)=>{
-    const s = clean(v).replace(/[^\d]/g,"");
-    if (!s) return NaN;
-    return Number(s);
-  };
-
-  const out = [];
-  for (let i=1;i<lines.length;i++){
-    const cols = splitByDelim(lines[i], delim);
-
-    if (idx.game !== -1){
-      const g = clean(cols[idx.game]);
-      if (g && g !== "威力彩") continue;
-    }
-
-    const draw_id = clean(cols[idx.draw_id]);
-    const dStr = clean(cols[idx.draw_date]);
-    const d = parseDateFlexible(dStr);
-
-    const n = [idx.n1,idx.n2,idx.n3,idx.n4,idx.n5,idx.n6].map(k=>toNum(cols[k]));
-    const s = toNum(cols[idx.s]);
-
-    if (!draw_id || !d || n.some(x=>!Number.isFinite(x)) || !Number.isFinite(s)) continue;
-    if (n.some(x=>x<1 || x>MAIN_MAX) || s<1 || s>SECOND_MAX) continue;
-
-    out.push({ draw_id, draw_date: d, n, s });
-  }
-
-  return out;
 }
 
 function uniqByDrawId(arr){
@@ -421,8 +317,9 @@ function renderTopAndGap(){
 
   const gap = calcGapMain(data5);
   const gapItems = [];
-  for (let i=1;i<=MAIN_MAX;i++) gapItems.push({num:i, gap: gap[i]});
-
+  for (let i=1;i<=MAIN_MAX;i++){
+    gapItems.push({num:i, gap: gap[i]});
+  }
   gapItems.sort((a,b)=>{
     const ga = (a.gap===null)? 1e9 : a.gap;
     const gb = (b.gap===null)? 1e9 : b.gap;
@@ -442,7 +339,9 @@ function renderTopAndGap(){
   }
 }
 
-/** ========= Weighted sampling without replacement ========= */
+/** ========= Weighted sampling without replacement =========
+ * Efraimidis–Spirakis (A-ES): key = u^(1/w), pick top-k by key
+ */
 function weightedSampleWithoutReplacement(items, weights, k){
   const scored = items.map((it,i)=>{
     const w = Math.max(1e-9, weights[i]);
@@ -491,7 +390,7 @@ function buildWeights(mode, base, alpha, data){
 
 /** ========= UI / Charts ========= */
 function setKPI(){
-  document.getElementById("kpiRows").textContent = rows.length;
+  document.getElementById("kpiRows").textContent = rows.length ? String(rows.length) : "-";
   if (!rows.length){
     document.getElementById("kpiRange").textContent = "-";
     document.getElementById("kpiLatest").textContent = "-";
@@ -524,7 +423,9 @@ function renderTimeline(){
   const pts = [];
   for (const r of data5){
     const hit = (zone==="main") ? r.n.includes(num) : (r.s === num);
-    if (hit) pts.push({ x: r.draw_date.getTime(), y: 1, draw_id: r.draw_id });
+    if (hit){
+      pts.push({ x: r.draw_date.getTime(), y: 1, draw_id: r.draw_id });
+    }
   }
 
   const ctxT = document.getElementById("chartTimeline");
@@ -547,8 +448,17 @@ function renderTimeline(){
         }
       },
       scales:{
-        x:{ type:'time', time:{ unit:'month' }, ticks:{ color:"#9fb0d0" }, grid:{ color:"rgba(35,52,87,.35)" } },
-        y:{ min:0, max:2, ticks:{ display:false }, grid:{ color:"rgba(35,52,87,.15)" } }
+        x:{
+          type:'time',
+          time:{ unit:'month' },
+          ticks:{ color:"#9fb0d0" },
+          grid:{ color:"rgba(35,52,87,.35)" }
+        },
+        y:{
+          min:0, max:2,
+          ticks:{ display:false },
+          grid:{ color:"rgba(35,52,87,.15)" }
+        }
       }
     }
   });
@@ -563,6 +473,7 @@ function renderCharts(){
 
   const labelsM = Array.from({length:MAIN_MAX}, (_,i)=>String(i+1));
   const valuesM = fm.slice(1);
+
   const labelsS = Array.from({length:SECOND_MAX}, (_,i)=>String(i+1));
   const valuesS = fs.slice(1);
 
@@ -631,192 +542,76 @@ function renderPreview(main, sec){
   box.appendChild(s);
 }
 
-/** ========= Latest fetch + append (via GAS Proxy) ========= */
-function gasProxyUrl(targetUrl){
-  if (!GAS_PROXY_BASE) throw new Error("GAS_PROXY_BASE 未設定");
-  const joiner = GAS_PROXY_BASE.includes("?") ? "&" : "?";
-  return `${GAS_PROXY_BASE}${joiner}action=proxy&url=${encodeURIComponent(targetUrl)}`;
+/** ========= GAS calls ========= */
+function gasActionUrl(action, extraQuery=""){
+  const joiner = GAS_BASE.includes("?") ? "&" : "?";
+  return `${GAS_BASE}${joiner}action=${encodeURIComponent(action)}${extraQuery ? "&"+extraQuery : ""}`;
 }
 
-async function gasCall(action){
-  const joiner = GAS_PROXY_BASE.includes("?") ? "&" : "?";
-  const url = `${GAS_PROXY_BASE}${joiner}action=${encodeURIComponent(action)}`;
+async function gasGetJson(action, extraQuery=""){
+  const url = gasActionUrl(action, extraQuery);
   const res = await fetch(url, { cache:"no-store" });
-  if (!res.ok) throw new Error(`GAS 呼叫失敗：HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const j = await res.json();
-  if (!j.ok) throw new Error(j.error || "GAS 回傳失敗");
+  if (!j.ok) throw new Error(j.error || "GAS error");
   return j;
 }
 
-  
-async function fetchText(targetUrl){
-  const useProxy = document.getElementById("chkUseProxy").checked;
-  const finalUrl = useProxy ? gasProxyUrl(targetUrl) : targetUrl;
+async function loadRowsFromSheet(){
+  const j = await gasGetJson("export");
+  const data = j.data || [];
 
-  const res = await fetch(finalUrl, { cache: "no-store" });
-  if (!res.ok) throw new Error(`抓取失敗：HTTP ${res.status}`);
+  // Convert sheet rows -> our rows format
+  const parsed = [];
+  for (const r of data){
+    // r.draw_date might be "YYYY-MM-DD" or Date-like string
+    const d = parseDateFlexible(String(r.draw_date || ""));
+    if (!d) continue;
 
-  // Proxy 回 JSON；非 Proxy 回 HTML
-  if (useProxy){
-    const j = await res.json();
-    if (!j.ok) throw new Error(j.error || "Proxy 回傳失敗");
-    return j.body;
+    const n = [
+      Number(r.n1), Number(r.n2), Number(r.n3),
+      Number(r.n4), Number(r.n5), Number(r.n6)
+    ].filter(x=>Number.isFinite(x));
+
+    const s = Number(r.s);
+
+    if (!r.draw_id || n.length !== 6 || !Number.isFinite(s)) continue;
+    parsed.push({ draw_id: String(r.draw_id), draw_date: d, n, s });
   }
-  return await res.text();
-}
 
-function parseLatestFromCTBC(html){
-  const text = html
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|tr|li|h\d)>/gi, "\n")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;|&#160;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/\s+/g, " ")
-    .replace(/\s*\n\s*/g, "\n")
-    .trim();
-
-  const idx = text.indexOf("威力彩");
-  if (idx === -1) throw new Error("找不到『威力彩』區塊（來源版面可能改了）");
-  const slice = text.slice(idx, idx + 8000);
-
-  const idMatch =
-    slice.match(/第\s*([0-9]{6,})\s*期/) ||
-    slice.match(/期\s*別[\s:：]*第?\s*([0-9]{6,})\s*期?/);
-  if (!idMatch) throw new Error("解析失敗：找不到期別");
-  const draw_id = idMatch[1].trim();
-
-  const dateMatch =
-    slice.match(/開獎日期[\s:：]*([^\n]{0,60})/) ||
-    slice.match(/開獎日[\s:：]*([^\n]{0,60})/);
-  if (!dateMatch) throw new Error("解析失敗：找不到開獎日期");
-  const draw_date = parseDateFlexible(dateMatch[1]);
-  if (!draw_date) throw new Error("解析失敗：開獎日期格式不明");
-
-  let mainArea = slice;
-  const m1 = slice.match(/第\s*1\s*區[\s\S]{0,800}/);
-  if (m1) mainArea = m1[0];
-
-  const mainNums = (mainArea.match(/\b([0-9]{1,2})\b/g) || [])
-    .map(Number)
-    .filter(n => n >= 1 && n <= 38);
-
-  let n = null;
-  for (let i=0; i<=mainNums.length-6; i++){
-    const cand = mainNums.slice(i, i+6);
-    if (new Set(cand).size === 6) { n = cand; break; }
-  }
-  if (!n) throw new Error("解析失敗：找不到第一區 6 碼");
-
-  let secArea = slice;
-  const s1 = slice.match(/第\s*2\s*區[\s\S]{0,200}/);
-  if (s1) secArea = s1[0];
-
-  const secNums = (secArea.match(/\b([0-9]{1,2})\b/g) || [])
-    .map(Number)
-    .filter(x => x >= 1 && x <= 8);
-
-  if (!secNums.length) throw new Error("解析失敗：找不到第二區");
-  const s = secNums[0];
-
-  n = n.slice(0,6).sort((a,b)=>a-b);
-  return { draw_id, draw_date, n, s };
-}
-
-async function appendLatest(){
-  const btn = document.getElementById("btnFetchLatest");
-  btn.disabled = true;
-  btn.textContent = "寫入中…";
-
-  try{
-    // 1) 叫 GAS 抓最新 + 寫進 Sheet
-    const r1 = await gasCall("append_latest");
-
-    // 2) 再把 Sheet 內「完整資料」拉回來更新前端 rows
-    const r2 = await gasCall("export");
-
-    // GAS export 出來的欄位是 draw_id, draw_date(yyyy-mm-dd), n1..n6, s
-    rows = r2.data.map(x => ({
-      draw_id: String(x.draw_id),
-      draw_date: parseDateFlexible(String(x.draw_date)),
-      n: [x.n1,x.n2,x.n3,x.n4,x.n5,x.n6].map(Number),
-      s: Number(x.s)
-    }));
-
-    rows = uniqByDrawId(rows);
-    setKPI();
-    renderCharts();
-
-    if (r1.inserted){
-      alert(`已寫入並更新：${r1.latest.draw_id}\n${r1.latest.draw_date}\n${r1.latest.n.join(", ")} + ${pad2(r1.latest.s)}`);
-    } else {
-      alert(`你的資料已包含最新一期：${r1.latest.draw_id}\n（已同步最新資料）`);
-    }
-
-  } catch(e){
-    console.error(e);
-    alert(`更新失敗：\n${e.message}\n\n請確認：\n1) GAS 已部署為 Web App（Anyone）\n2) GAS_PROXY_BASE 是最新 /exec\n3) GAS 已授權 UrlFetch + Spreadsheet`);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = "自動抓最新一期並追加";
-  }
-}
-
-/** ========= Demo data ========= */
-function loadDemo(){
-  const base = [
-    ["115000010","2026-02-02",[1,12,14,15,27,29],5],
-    ["115000011","2026-02-05",[7,22,28,34,36,37],7],
-    ["115000012","2026-02-09",[13,14,16,33,34,37],2],
-    ["114000150","2025-12-29",[1,3,9,11,18,32],6],
-    ["114000151","2026-01-01",[7,14,22,23,31,35],1],
-    ["114000152","2026-01-05",[11,14,19,25,34,37],4]
-  ];
-  rows = base.map(x=>({draw_id:x[0], draw_date:parseDateFlexible(x[1]), n:x[2], s:x[3]}));
-  rows = uniqByDrawId(rows);
-  setKPI();
-  renderCharts();
-}
-
-/** ========= Load CSV from URL (for GitHub Pages) ========= */
-async function loadCsvFromUrl(url){
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(`載入站內 CSV 失敗：HTTP ${res.status}`);
-  const text = await res.text();
-  const parsed = csvParse(text);
   rows = uniqByDrawId(parsed);
   setKPI();
   renderCharts();
 }
 
-/** ========= Wire up ========= */
-document.getElementById("btnLoadDemo").addEventListener("click", loadDemo);
+async function appendLatestAndRefresh(){
+  const btn = document.getElementById("btnFetchLatest");
+  btn.disabled = true;
+  btn.textContent = "追加中…";
 
-document.getElementById("csvFile").addEventListener("change", async (ev)=>{
-  const f = ev.target.files?.[0];
-  if (!f) return;
-
-  // 這裡仍用 text()，若你之後又遇到 Big5，可再加 smart decoder
-  const text = await f.text();
   try{
-    const parsed = csvParse(text);
-    rows = uniqByDrawId(parsed);
-    setKPI();
-    renderCharts();
-    alert(`匯入完成：${rows.length} 筆`);
+    const j = await gasGetJson("append_latest");
+    const inserted = !!j.inserted;
+    await loadRowsFromSheet();
+    alert(inserted ? "✅ 已追加最新一期並刷新（寫入 Sheet）" : "ℹ️ Sheet 已包含最新一期（仍已刷新）");
   } catch(e){
-    alert(`匯入失敗：${e.message}`);
+    console.error(e);
+    alert(`❌ 追加失敗：${e.message}`);
   } finally {
-    ev.target.value = "";
+    btn.disabled = false;
+    btn.textContent = "自動抓最新一期並追加（寫入 Sheet）";
   }
-});
+}
 
-document.getElementById("btnFetchLatest").addEventListener("click", appendLatest);
+/** ========= Connection indicator ========= */
+function setConn(ok, txt){
+  const dot = document.getElementById("connDot");
+  const el = document.getElementById("connText");
+  dot.classList.toggle("bad", !ok);
+  el.textContent = txt;
+}
 
+/** ========= Wire up ========= */
 document.getElementById("selZone").addEventListener("change", ()=>{
   rebuildNumberOptions();
   renderTimeline();
@@ -836,12 +631,12 @@ document.getElementById("rngAlpha").addEventListener("input", (e)=>{
 
 document.getElementById("btnGen").addEventListener("click", ()=>{
   if (!rows.length){
-    alert("尚未載入資料：可匯入 CSV 或等待站內預設資料載入。");
+    alert("資料尚未載入。請先按「重新載入（從 Sheet）」或稍候初始化完成。");
     return;
   }
   const data5 = lastNYears(rows, 5);
   if (!data5.length){
-    alert("近 5 年資料為空（或日期解析失敗）。請確認資料日期格式。");
+    alert("近 5 年資料為空（或日期解析失敗）。");
     return;
   }
 
@@ -859,58 +654,44 @@ document.getElementById("btnGen").addEventListener("click", ()=>{
   document.getElementById("out").textContent = lines.join("\n");
 });
 
-// Boot (GitHub Pages: auto-load DEFAULT_CSV_URL; fallback to demo)
-document.getElementById("alphaVal").textContent = Number(document.getElementById("rngAlpha").value).toFixed(2);
+document.getElementById("btnFetchLatest").addEventListener("click", appendLatestAndRefresh);
 
-(async function boot(){
-  // Show proxy text & test link
-  (function initProxyInfo(){
-    const proxyTxt = document.getElementById("proxyUrlTxt");
-    const testTxt  = document.getElementById("proxyTestUrl");
-    const example = "https://script.google.com/macros/s/XXXXX/exec";
-    const base = (!GAS_PROXY_BASE) ? example : GAS_PROXY_BASE;
-    proxyTxt.textContent = base;
-
-    const joiner = base.includes("?") ? "&" : "?";
-    const testUrl = `${base}${joiner}action=proxy&url=${encodeURIComponent(LATEST_SOURCE_URL)}`;
-
-    testTxt.textContent = testUrl;
-
-    const d = document.getElementById("defaultCsvTxt");
-    if (d) d.textContent = DEFAULT_CSV_URL;
-  })();
-
+document.getElementById("btnReload").addEventListener("click", async ()=>{
+  const btn = document.getElementById("btnReload");
+  btn.disabled = true;
+  btn.textContent = "載入中…";
   try{
-    await loadCsvFromUrl(DEFAULT_CSV_URL);
+    await loadRowsFromSheet();
+    setConn(true, "已連線（export 成功）");
   } catch(e){
     console.error(e);
-    // Boot：優先讀 GAS Sheet（分享給別人也不用匯入 CSV）
-(async function boot(){
-  try{
-    const r = await gasCall("export");
-    rows = r.data.map(x => ({
-      draw_id: String(x.draw_id),
-      draw_date: parseDateFlexible(String(x.draw_date)),
-      n: [x.n1,x.n2,x.n3,x.n4,x.n5,x.n6].map(Number),
-      s: Number(x.s)
-    }));
-    rows = uniqByDrawId(rows);
-    setKPI();
-    renderCharts();
-  } catch(e){
-    console.warn("boot export failed, fallback to demo", e);
-    loadDemo();
+    setConn(false, "連線失敗（請檢查 GAS_BASE）");
+    alert(`載入失敗：${e.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "重新載入（從 Sheet）";
   }
-})();
-;
-    alert("站內 5 年資料載入失敗，已改用範例資料。\n\n" + e.message + "\n\n請確認 repo 同層存在 datawl_5y.csv（UTF-8）");
-  }
+});
+
+/** ========= Boot ========= */
+(function init(){
+  document.getElementById("alphaVal").textContent = Number(document.getElementById("rngAlpha").value).toFixed(2);
+
+  // show backend info
+  document.getElementById("gasTxt").textContent = GAS_BASE;
+  document.getElementById("gasTest").textContent = gasActionUrl("export");
+
+  // auto load once
+  (async ()=>{
+    try{
+      await loadRowsFromSheet();
+      setConn(true, "已連線（export 成功）");
+    } catch(e){
+      console.error(e);
+      setConn(false, "連線失敗（請檢查 GAS_BASE 是否為 /exec）");
+    }
+  })();
 })();
 </script>
 </body>
 </html>
-
-
-
-
-
