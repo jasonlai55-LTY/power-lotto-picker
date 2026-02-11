@@ -157,15 +157,15 @@
       <div id="preview" class="numbers"></div>
       <div id="out" class="out"></div>
 
-<div class="hr"></div>
+      <div class="hr"></div>
 
-<h2>近 5 年 熱/冷號 Top 10（第一區）</h2>
-<div id="top10Main" class="out"></div>
+      <h2>近 5 年 熱/冷號 Top 10（第一區）</h2>
+      <div id="top10Main" class="out"></div>
 
-<h2 style="margin-top:10px;">距離上次開出（gap，期數）</h2>
-<div class="small muted">gap＝從最新一期往回數，0 代表最新一期就出現</div>
-<div id="gapMain" class="out"></div>
-		
+      <h2 style="margin-top:10px;">距離上次開出（gap，期數）</h2>
+      <div class="small muted">gap＝從最新一期往回數，0 代表最新一期就出現</div>
+      <div id="gapMain" class="out"></div>
+
       <div class="hr"></div>
 
       <details open>
@@ -187,6 +187,10 @@
           測試 Proxy：在瀏覽器打開：<br/>
           <span class="mono" id="proxyTestUrl"></span>
         </div>
+
+        <div class="small muted" style="margin-top:10px;">
+          站內預設資料：<span class="mono" id="defaultCsvTxt"></span>
+        </div>
       </details>
     </div>
   </div>
@@ -194,17 +198,14 @@
 
 <script>
 /** =========================
- *  你只需要改這一行！
- *  把 GAS_PROXY_BASE 換成你部署後的 Web App URL
- *  例如：https://script.google.com/macros/s/XXXXX/exec
+ *  你只需要改這兩行（若你檔名不同也改）
  *  ========================= */
-const GAS_PROXY_BASE = "https://script.google.com/macros/s/AKfycbwh0gqPHGeLa_QMA8CPch4aC4nixrceRVo9CDEcss_y9wN4KdIhIKriG1AltB7OcOAq/exec"; // ← 改這裡
+const GAS_PROXY_BASE = "https://script.google.com/macros/s/AKfycbwh0gqPHGeLa_QMA8CPch4aC4nixrceRVo9CDEcss_y9wN4KdIhIKriG1AltB7OcOAq/exec";
+const DEFAULT_CSV_URL = "./datawl_5y.csv"; // ✅ 把 5 年 CSV 上傳到 repo，同層放這個檔名
 
 /** ========= Config ========= */
 const MAIN_MAX = 38;
 const SECOND_MAX = 8;
-
-// 最新一期來源（中信銀彩券管理部頁）：內容通常是靜態文字，較容易解析
 const LATEST_SOURCE_URL = "https://lotto.ctbcbank.com/result_all.htm";
 
 /** ========= State ========= */
@@ -221,11 +222,9 @@ function parseDateFlexible(s){
   const t = (s||"").trim();
   if (!t) return null;
 
-  // YYYY-MM-DD or YYYY/MM/DD
   let m = t.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
   if (m) return new Date(Number(m[1]), Number(m[2])-1, Number(m[3]));
 
-  // ROC: "115 年 2 月 9 日" (no "民國" also accepted)
   m = t.match(/(\d{2,3})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
   if (m){
     const roc = Number(m[1]);
@@ -237,17 +236,20 @@ function parseDateFlexible(s){
   return isNaN(d.getTime()) ? null : d;
 }
 
-function splitCSVLine(line){
-  const res=[];
-  let cur="", inQ=false;
+/** 通用 CSV split（逗號/TAB/分號的邏輯在 csvParse 內處理）*/
+function splitByDelim(line, delim){
+  const res = [];
+  let cur = "", inQ = false;
   for (let i=0;i<line.length;i++){
-    const c=line[i];
-    if (c === '"' ){
-      if (inQ && line[i+1] === '"'){ cur+='"'; i++; }
+    const ch = line[i];
+    if (ch === '"'){
+      if (inQ && line[i+1] === '"'){ cur += '"'; i++; }
       else inQ = !inQ;
-    } else if (c === "," && !inQ){
-      res.push(cur); cur="";
-    } else cur += c;
+    } else if (!inQ && ch === delim){
+      res.push(cur); cur = "";
+    } else {
+      cur += ch;
+    }
   }
   res.push(cur);
   return res;
@@ -259,53 +261,27 @@ function csvParse(text){
   if (!lines.length) return [];
 
   const clean = (s)=>String(s ?? "")
-    .replace(/^\uFEFF/,"")   // BOM
-    .replace(/\u3000/g," ")  // 全形空白
+    .replace(/^\uFEFF/,"")
+    .replace(/\u3000/g," ")
     .trim();
 
-  // --- 1) 自動偵測分隔符（逗號 / tab / 分號）---
+  // 自動偵測分隔符：, / \t / ;
   const headLine = lines[0];
   const cComma = (headLine.match(/,/g) || []).length;
   const cTab   = (headLine.match(/\t/g) || []).length;
   const cSemi  = (headLine.match(/;/g) || []).length;
   const delim = (cTab > cComma && cTab > cSemi) ? "\t" : (cSemi > cComma ? ";" : ",");
 
-  // --- 2) 依分隔符切欄（支援雙引號）---
-  function splitLine(line){
-    // TAB 分隔時，多半不會用雙引號包欄位；但仍做通用處理
-    const res = [];
-    let cur = "", inQ = false;
-    for (let i=0;i<line.length;i++){
-      const ch = line[i];
-      if (ch === '"'){
-        if (inQ && line[i+1] === '"'){ cur += '"'; i++; }
-        else inQ = !inQ;
-      } else if (!inQ && ch === delim){
-        res.push(cur); cur = "";
-      } else {
-        cur += ch;
-      }
-    }
-    res.push(cur);
-    return res;
-  }
+  const normKey = (k)=>clean(k).toLowerCase().replace(/\s+/g,"").replace(/[_\-\/]/g,"");
 
-  // 欄名正規化：去空白/小寫/去符號（讓「獎號 1」也能對到）
-  const normKey = (k)=>clean(k)
-    .toLowerCase()
-    .replace(/\s+/g,"")
-    .replace(/[_\-\/]/g,"");
-
-  const headerRaw = splitLine(lines[0]).map(clean);
+  const headerRaw = splitByDelim(lines[0], delim).map(clean);
   const headerN   = headerRaw.map(normKey);
 
-  // 找欄位 index：支援你這份台彩格式
   function findIdxByNames(...names){
     for (const nm of names){
       const t = normKey(nm);
       let i = headerN.indexOf(t);
       if (i !== -1) return i;
-      // 也比對原字串（以防有些檔不適合正規化）
       i = headerRaw.findIndex(h => clean(h) === nm);
       if (i !== -1) return i;
     }
@@ -328,7 +304,6 @@ function csvParse(text){
   const need = ["draw_id","draw_date","n1","n2","n3","n4","n5","n6","s"];
   const missing = need.filter(k => idx[k] === -1);
   if (missing.length){
-    // 方便你確認 header 是否被正確切欄
     throw new Error(
       `CSV 欄位辨識不到：${missing.join(", ")}。\n` +
       `偵測到分隔符：${delim === "\t" ? "TAB(\\t)" : delim}\n` +
@@ -344,9 +319,8 @@ function csvParse(text){
 
   const out = [];
   for (let i=1;i<lines.length;i++){
-    const cols = splitLine(lines[i]);
+    const cols = splitByDelim(lines[i], delim);
 
-    // 只保留「威力彩」
     if (idx.game !== -1){
       const g = clean(cols[idx.game]);
       if (g && g !== "威力彩") continue;
@@ -367,7 +341,6 @@ function csvParse(text){
 
   return out;
 }
-
 
 function uniqByDrawId(arr){
   const m = new Map();
@@ -398,7 +371,6 @@ function freqSecond(data){
 }
 
 function topKFromFreq(freqArr, k=10, mode="hot"){
-  // freqArr: index 0 unused, 1..max
   const items = [];
   for (let i=1;i<freqArr.length;i++){
     items.push({num:i, cnt: freqArr[i]});
@@ -416,14 +388,12 @@ function topKFromFreq(freqArr, k=10, mode="hot"){
 }
 
 function calcGapMain(data){
-  // 回傳 1..38 每個號碼距離上次出現的期數（0=最新一期就出現；沒出現過= null）
   const gap = Array(MAIN_MAX+1).fill(null);
   for (let back=0; back<data.length; back++){
-    const r = data[data.length-1-back]; // 從最新往回
+    const r = data[data.length-1-back];
     for (const x of r.n){
       if (gap[x] === null) gap[x] = back;
     }
-    // 如果都填滿就提前結束
     let done = true;
     for (let i=1;i<=MAIN_MAX;i++){ if (gap[i] === null) { done=false; break; } }
     if (done) break;
@@ -437,7 +407,6 @@ function renderTopAndGap(){
   const data5 = lastNYears(rows, 5);
   const fm = freqMain(data5);
 
-  // Top10 熱/冷
   const hot10 = topKFromFreq(fm, 10, "hot");
   const cold10 = topKFromFreq(fm, 10, "cold");
 
@@ -450,13 +419,10 @@ function renderTopAndGap(){
       `🧊 冷號 Top10（次數）\n${fmtList(cold10)}`;
   }
 
-  // gap（上次出現距離）
   const gap = calcGapMain(data5);
   const gapItems = [];
-  for (let i=1;i<=MAIN_MAX;i++){
-    gapItems.push({num:i, gap: gap[i]});
-  }
-  // gap 大到小 = 越久沒出
+  for (let i=1;i<=MAIN_MAX;i++) gapItems.push({num:i, gap: gap[i]});
+
   gapItems.sort((a,b)=>{
     const ga = (a.gap===null)? 1e9 : a.gap;
     const gb = (b.gap===null)? 1e9 : b.gap;
@@ -464,7 +430,7 @@ function renderTopAndGap(){
     return a.num - b.num;
   });
 
-  const topGap = gapItems.slice(0, 15); // 顯示最久沒出的前 15
+  const topGap = gapItems.slice(0, 15);
   const elGap = document.getElementById("gapMain");
   if (elGap){
     elGap.textContent =
@@ -476,10 +442,7 @@ function renderTopAndGap(){
   }
 }
 
-
-/** ========= Weighted sampling without replacement =========
- * Efraimidis–Spirakis (A-ES): key = u^(1/w), pick top-k by key
- */
+/** ========= Weighted sampling without replacement ========= */
 function weightedSampleWithoutReplacement(items, weights, k){
   const scored = items.map((it,i)=>{
     const w = Math.max(1e-9, weights[i]);
@@ -495,14 +458,13 @@ function buildWeights(mode, base, alpha, data){
   const fm = freqMain(data);
   const fs = freqSecond(data);
 
-  const mainCount = fm.slice(1); // 1..38
-  const secCount  = fs.slice(1); // 1..8
+  const mainCount = fm.slice(1);
+  const secCount  = fs.slice(1);
 
   const maxM = Math.max(...mainCount, 1);
   const maxS = Math.max(...secCount, 1);
 
   function hotW(counts){ return counts.map(c=>c); }
-  // 冷號 A：頻率低 → 權重高
   function coldW(counts, maxC){ return counts.map(c=> (maxC - c + 1)); }
 
   let wm, ws;
@@ -511,7 +473,7 @@ function buildWeights(mode, base, alpha, data){
     wm = hotW(mainCount); ws = hotW(secCount);
   } else if (mode === "cold"){
     wm = coldW(mainCount, maxM); ws = coldW(secCount, maxS);
-  } else { // mix
+  } else {
     const uniM = Array(MAIN_MAX).fill(1);
     const uniS = Array(SECOND_MAX).fill(1);
     const baseWm = (base==="cold") ? coldW(mainCount, maxM) : hotW(mainCount);
@@ -562,9 +524,7 @@ function renderTimeline(){
   const pts = [];
   for (const r of data5){
     const hit = (zone==="main") ? r.n.includes(num) : (r.s === num);
-    if (hit){
-      pts.push({ x: r.draw_date.getTime(), y: 1, draw_id: r.draw_id });
-    }
+    if (hit) pts.push({ x: r.draw_date.getTime(), y: 1, draw_id: r.draw_id });
   }
 
   const ctxT = document.getElementById("chartTimeline");
@@ -587,17 +547,8 @@ function renderTimeline(){
         }
       },
       scales:{
-        x:{
-          type:'time',
-          time:{ unit:'month' },
-          ticks:{ color:"#9fb0d0" },
-          grid:{ color:"rgba(35,52,87,.35)" }
-        },
-        y:{
-          min:0, max:2,
-          ticks:{ display:false },
-          grid:{ color:"rgba(35,52,87,.15)" }
-        }
+        x:{ type:'time', time:{ unit:'month' }, ticks:{ color:"#9fb0d0" }, grid:{ color:"rgba(35,52,87,.35)" } },
+        y:{ min:0, max:2, ticks:{ display:false }, grid:{ color:"rgba(35,52,87,.15)" } }
       }
     }
   });
@@ -612,7 +563,6 @@ function renderCharts(){
 
   const labelsM = Array.from({length:MAIN_MAX}, (_,i)=>String(i+1));
   const valuesM = fm.slice(1);
-
   const labelsS = Array.from({length:SECOND_MAX}, (_,i)=>String(i+1));
   const valuesS = fs.slice(1);
 
@@ -683,10 +633,9 @@ function renderPreview(main, sec){
 
 /** ========= Latest fetch + append (via GAS Proxy) ========= */
 function gasProxyUrl(targetUrl){
-  if (!GAS_PROXY_BASE || GAS_PROXY_BASE.includes("PASTE_YOUR_GAS_WEBAPP_URL_HERE")){
+  if (!GAS_PROXY_BASE){
     throw new Error("你還沒設定 GAS_PROXY_BASE（請把它換成你的 GAS Web App URL）");
   }
-  // GAS Proxy expects: /exec?url=<encoded>
   const joiner = GAS_PROXY_BASE.includes("?") ? "&" : "?";
   return `${GAS_PROXY_BASE}${joiner}url=${encodeURIComponent(targetUrl)}`;
 }
@@ -696,16 +645,18 @@ async function fetchText(targetUrl){
   const finalUrl = useProxy ? gasProxyUrl(targetUrl) : targetUrl;
 
   const res = await fetch(finalUrl, { cache: "no-store" });
-if (!res.ok) throw new Error(`抓取失敗：HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`抓取失敗：HTTP ${res.status}`);
 
-const j = await res.json();
-if (!j.ok) throw new Error(j.error || "Proxy 回傳失敗");
-return j.body;
-
+  // Proxy 回 JSON；非 Proxy 回 HTML
+  if (useProxy){
+    const j = await res.json();
+    if (!j.ok) throw new Error(j.error || "Proxy 回傳失敗");
+    return j.body;
+  }
+  return await res.text();
 }
 
 function parseLatestFromCTBC(html){
-  // 1) HTML -> 純文字（降低版面變動造成的 regex 失效）
   const text = html
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
@@ -720,19 +671,16 @@ function parseLatestFromCTBC(html){
     .replace(/\s*\n\s*/g, "\n")
     .trim();
 
-  // 2) 定位威力彩區塊
   const idx = text.indexOf("威力彩");
   if (idx === -1) throw new Error("找不到『威力彩』區塊（來源版面可能改了）");
   const slice = text.slice(idx, idx + 8000);
 
-  // 3) 期別（多種寫法都吃）
   const idMatch =
     slice.match(/第\s*([0-9]{6,})\s*期/) ||
     slice.match(/期\s*別[\s:：]*第?\s*([0-9]{6,})\s*期?/);
   if (!idMatch) throw new Error("解析失敗：找不到期別");
   const draw_id = idMatch[1].trim();
 
-  // 4) 開獎日期（民國 or 西元）
   const dateMatch =
     slice.match(/開獎日期[\s:：]*([^\n]{0,60})/) ||
     slice.match(/開獎日[\s:：]*([^\n]{0,60})/);
@@ -740,7 +688,6 @@ function parseLatestFromCTBC(html){
   const draw_date = parseDateFlexible(dateMatch[1]);
   if (!draw_date) throw new Error("解析失敗：開獎日期格式不明");
 
-  // 5) 第一區 6 碼：以「第1區附近」的數字序列找 6 個不重複的片段
   let mainArea = slice;
   const m1 = slice.match(/第\s*1\s*區[\s\S]{0,800}/);
   if (m1) mainArea = m1[0];
@@ -756,7 +703,6 @@ function parseLatestFromCTBC(html){
   }
   if (!n) throw new Error("解析失敗：找不到第一區 6 碼");
 
-  // 6) 第二區（1~8）
   let secArea = slice;
   const s1 = slice.match(/第\s*2\s*區[\s\S]{0,200}/);
   if (s1) secArea = s1[0];
@@ -771,7 +717,6 @@ function parseLatestFromCTBC(html){
   n = n.slice(0,6).sort((a,b)=>a-b);
   return { draw_id, draw_date, n, s };
 }
-
 
 async function appendLatest(){
   const btn = document.getElementById("btnFetchLatest");
@@ -802,7 +747,6 @@ async function appendLatest(){
 
 /** ========= Demo data ========= */
 function loadDemo(){
-  // Small demo (not real history). You should import 5y CSV for real charts.
   const base = [
     ["115000010","2026-02-02",[1,12,14,15,27,29],5],
     ["115000011","2026-02-05",[7,22,28,34,36,37],7],
@@ -817,12 +761,25 @@ function loadDemo(){
   renderCharts();
 }
 
+/** ========= Load CSV from URL (for GitHub Pages) ========= */
+async function loadCsvFromUrl(url){
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`載入站內 CSV 失敗：HTTP ${res.status}`);
+  const text = await res.text();
+  const parsed = csvParse(text);
+  rows = uniqByDrawId(parsed);
+  setKPI();
+  renderCharts();
+}
+
 /** ========= Wire up ========= */
 document.getElementById("btnLoadDemo").addEventListener("click", loadDemo);
 
 document.getElementById("csvFile").addEventListener("change", async (ev)=>{
   const f = ev.target.files?.[0];
   if (!f) return;
+
+  // 這裡仍用 text()，若你之後又遇到 Big5，可再加 smart decoder
   const text = await f.text();
   try{
     const parsed = csvParse(text);
@@ -858,12 +815,12 @@ document.getElementById("rngAlpha").addEventListener("input", (e)=>{
 
 document.getElementById("btnGen").addEventListener("click", ()=>{
   if (!rows.length){
-    alert("請先匯入歷史 CSV（或載入內建範例）");
+    alert("尚未載入資料：可匯入 CSV 或等待站內預設資料載入。");
     return;
   }
   const data5 = lastNYears(rows, 5);
   if (!data5.length){
-    alert("近 5 年資料為空（或日期解析失敗）。請確認 CSV draw_date 格式。");
+    alert("近 5 年資料為空（或日期解析失敗）。請確認資料日期格式。");
     return;
   }
 
@@ -881,22 +838,36 @@ document.getElementById("btnGen").addEventListener("click", ()=>{
   document.getElementById("out").textContent = lines.join("\n");
 });
 
-// Boot
-loadDemo();
+// Boot (GitHub Pages: auto-load DEFAULT_CSV_URL; fallback to demo)
 document.getElementById("alphaVal").textContent = Number(document.getElementById("rngAlpha").value).toFixed(2);
 
-// Show proxy text & test link
-(function initProxyInfo(){
-  const proxyTxt = document.getElementById("proxyUrlTxt");
-  const testTxt  = document.getElementById("proxyTestUrl");
-  const example = "https://script.google.com/macros/s/XXXXX/exec";
-  const base = (!GAS_PROXY_BASE || GAS_PROXY_BASE.includes("PASTE_YOUR_GAS_WEBAPP_URL_HERE")) ? example : GAS_PROXY_BASE;
-  proxyTxt.textContent = base;
+(async function boot(){
+  // Show proxy text & test link
+  (function initProxyInfo(){
+    const proxyTxt = document.getElementById("proxyUrlTxt");
+    const testTxt  = document.getElementById("proxyTestUrl");
+    const example = "https://script.google.com/macros/s/XXXXX/exec";
+    const base = (!GAS_PROXY_BASE) ? example : GAS_PROXY_BASE;
+    proxyTxt.textContent = base;
 
-  const joiner = base.includes("?") ? "&" : "?";
-  const testUrl = `${base}${joiner}url=${encodeURIComponent(LATEST_SOURCE_URL)}`;
-  testTxt.textContent = testUrl;
+    const joiner = base.includes("?") ? "&" : "?";
+    const testUrl = `${base}${joiner}url=${encodeURIComponent(LATEST_SOURCE_URL)}`;
+    testTxt.textContent = testUrl;
+
+    const d = document.getElementById("defaultCsvTxt");
+    if (d) d.textContent = DEFAULT_CSV_URL;
+  })();
+
+  try{
+    await loadCsvFromUrl(DEFAULT_CSV_URL);
+  } catch(e){
+    console.error(e);
+    loadDemo();
+    alert("站內 5 年資料載入失敗，已改用範例資料。\n\n" + e.message + "\n\n請確認 repo 同層存在 datawl_5y.csv（UTF-8）");
+  }
 })();
 </script>
 </body>
 </html>
+
+
