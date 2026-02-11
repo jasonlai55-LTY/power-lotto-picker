@@ -202,7 +202,7 @@
  *  把 GAS_BASE 換成你部署後的 Web App /exec URL
  *  例如：https://script.google.com/macros/s/XXXXX/exec
  *  ========================= */
-const GAS_BASE = "https://script.google.com/macros/s/AKfycbxUsoAeLxDcvRFCkCJ44gKbY3oXr694KYX_mdlhno3OdekivzHsjqUI6a4C3wUEBMlr/exec"; // ← 改這裡（你的 /exec）
+const GAS_BASE = "https://script.google.com/macros/s/PASTE_YOUR_EXEC/exec"; // ← 改這裡（你的 /exec）
 
 /** ========= Config ========= */
 const MAIN_MAX = 38;
@@ -222,11 +222,9 @@ function parseDateFlexible(s){
   const t = (s||"").trim();
   if (!t) return null;
 
-  // YYYY-MM-DD or YYYY/MM/DD
   let m = t.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
   if (m) return new Date(Number(m[1]), Number(m[2])-1, Number(m[3]));
 
-  // ROC: "115 年 2 月 9 日" (no "民國" also accepted)
   m = t.match(/(\d{2,3})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
   if (m){
     const roc = Number(m[1]);
@@ -268,9 +266,7 @@ function freqSecond(data){
 
 function topKFromFreq(freqArr, k=10, mode="hot"){
   const items = [];
-  for (let i=1;i<freqArr.length;i++){
-    items.push({num:i, cnt: freqArr[i]});
-  }
+  for (let i=1;i<freqArr.length;i++) items.push({num:i, cnt: freqArr[i]});
   items.sort((a,b)=>{
     if (mode==="hot"){
       if (b.cnt !== a.cnt) return b.cnt - a.cnt;
@@ -317,9 +313,7 @@ function renderTopAndGap(){
 
   const gap = calcGapMain(data5);
   const gapItems = [];
-  for (let i=1;i<=MAIN_MAX;i++){
-    gapItems.push({num:i, gap: gap[i]});
-  }
+  for (let i=1;i<=MAIN_MAX;i++) gapItems.push({num:i, gap: gap[i]});
   gapItems.sort((a,b)=>{
     const ga = (a.gap===null)? 1e9 : a.gap;
     const gb = (b.gap===null)? 1e9 : b.gap;
@@ -339,9 +333,7 @@ function renderTopAndGap(){
   }
 }
 
-/** ========= Weighted sampling without replacement =========
- * Efraimidis–Spirakis (A-ES): key = u^(1/w), pick top-k by key
- */
+/** ========= Weighted sampling without replacement ========= */
 function weightedSampleWithoutReplacement(items, weights, k){
   const scored = items.map((it,i)=>{
     const w = Math.max(1e-9, weights[i]);
@@ -423,9 +415,7 @@ function renderTimeline(){
   const pts = [];
   for (const r of data5){
     const hit = (zone==="main") ? r.n.includes(num) : (r.s === num);
-    if (hit){
-      pts.push({ x: r.draw_date.getTime(), y: 1, draw_id: r.draw_id });
-    }
+    if (hit) pts.push({ x: r.draw_date.getTime(), y: 1, draw_id: r.draw_id });
   }
 
   const ctxT = document.getElementById("chartTimeline");
@@ -448,17 +438,8 @@ function renderTimeline(){
         }
       },
       scales:{
-        x:{
-          type:'time',
-          time:{ unit:'month' },
-          ticks:{ color:"#9fb0d0" },
-          grid:{ color:"rgba(35,52,87,.35)" }
-        },
-        y:{
-          min:0, max:2,
-          ticks:{ display:false },
-          grid:{ color:"rgba(35,52,87,.15)" }
-        }
+        x:{ type:'time', time:{ unit:'month' }, ticks:{ color:"#9fb0d0" }, grid:{ color:"rgba(35,52,87,.35)" } },
+        y:{ min:0, max:2, ticks:{ display:false }, grid:{ color:"rgba(35,52,87,.15)" } }
       }
     }
   });
@@ -486,27 +467,17 @@ function renderCharts(){
   chartMain = new Chart(ctxM, {
     type: 'bar',
     data: { labels: labelsM, datasets: [{ label:"次數", data: valuesM }] },
-    options: {
-      responsive:true,
-      plugins:{ legend:{ display:false }, tooltip:{ enabled:true } },
-      scales:{
-        x:{ ticks:{ color:"#9fb0d0" }, grid:{ color:"rgba(35,52,87,.35)" } },
-        y:{ ticks:{ color:"#9fb0d0" }, grid:{ color:"rgba(35,52,87,.35)" } }
-      }
-    }
+    options: { responsive:true, plugins:{ legend:{ display:false } },
+      scales:{ x:{ ticks:{ color:"#9fb0d0" }, grid:{ color:"rgba(35,52,87,.35)" } },
+               y:{ ticks:{ color:"#9fb0d0" }, grid:{ color:"rgba(35,52,87,.35)" } } } }
   });
 
   chartSecond = new Chart(ctxS, {
     type: 'bar',
     data: { labels: labelsS, datasets: [{ label:"次數", data: valuesS }] },
-    options: {
-      responsive:true,
-      plugins:{ legend:{ display:false }, tooltip:{ enabled:true } },
-      scales:{
-        x:{ ticks:{ color:"#9fb0d0" }, grid:{ color:"rgba(35,52,87,.35)" } },
-        y:{ ticks:{ color:"#9fb0d0" }, grid:{ color:"rgba(35,52,87,.35)" } }
-      }
-    }
+    options: { responsive:true, plugins:{ legend:{ display:false } },
+      scales:{ x:{ ticks:{ color:"#9fb0d0" }, grid:{ color:"rgba(35,52,87,.35)" } },
+               y:{ ticks:{ color:"#9fb0d0" }, grid:{ color:"rgba(35,52,87,.35)" } } } }
   });
 
   rebuildNumberOptions();
@@ -517,13 +488,11 @@ function renderCharts(){
 /** ========= Generator ========= */
 function genOne(mode, mixBase, alpha, data5){
   const {wm, ws} = buildWeights(mode, mixBase, alpha, data5);
-
   const mainItems = Array.from({length:MAIN_MAX}, (_,i)=>i+1);
   const secItems  = Array.from({length:SECOND_MAX}, (_,i)=>i+1);
 
   const pickedMain = weightedSampleWithoutReplacement(mainItems, wm, 6).sort((a,b)=>a-b);
   const pickedSec  = weightedSampleWithoutReplacement(secItems, ws, 1)[0];
-
   return { pickedMain, pickedSec };
 }
 
@@ -542,18 +511,48 @@ function renderPreview(main, sec){
   box.appendChild(s);
 }
 
-/** ========= GAS calls ========= */
+/** ========= GAS (JSONP) ========= */
 function gasActionUrl(action, extraQuery=""){
   const joiner = GAS_BASE.includes("?") ? "&" : "?";
   return `${GAS_BASE}${joiner}action=${encodeURIComponent(action)}${extraQuery ? "&"+extraQuery : ""}`;
 }
 
+function jsonp(url, timeoutMs=15000){
+  return new Promise((resolve, reject)=>{
+    const cb = "__cb_" + Math.random().toString(36).slice(2);
+    const timer = setTimeout(()=>{
+      cleanup();
+      reject(new Error("JSONP timeout（請檢查 GAS 是否部署為 Web App + Anyone 可存取）"));
+    }, timeoutMs);
+
+    function cleanup(){
+      clearTimeout(timer);
+      try{ delete window[cb]; }catch(_){}
+      if (script && script.parentNode) script.parentNode.removeChild(script);
+    }
+
+    window[cb] = (data)=>{
+      cleanup();
+      resolve(data);
+    };
+
+    const sep = url.includes("?") ? "&" : "?";
+    const full = `${url}${sep}callback=${encodeURIComponent(cb)}&_=${Date.now()}`;
+
+    const script = document.createElement("script");
+    script.src = full;
+    script.onerror = ()=>{
+      cleanup();
+      reject(new Error("JSONP script load error（多半是 GAS URL 錯/部署權限不對）"));
+    };
+    document.head.appendChild(script);
+  });
+}
+
 async function gasGetJson(action, extraQuery=""){
   const url = gasActionUrl(action, extraQuery);
-  const res = await fetch(url, { cache:"no-store" });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const j = await res.json();
-  if (!j.ok) throw new Error(j.error || "GAS error");
+  const j = await jsonp(url);
+  if (!j || j.ok !== true) throw new Error((j && j.error) ? j.error : "GAS error");
   return j;
 }
 
@@ -561,21 +560,22 @@ async function loadRowsFromSheet(){
   const j = await gasGetJson("export");
   const data = j.data || [];
 
-  // Convert sheet rows -> our rows format
   const parsed = [];
   for (const r of data){
-    // r.draw_date might be "YYYY-MM-DD" or Date-like string
     const d = parseDateFlexible(String(r.draw_date || ""));
     if (!d) continue;
 
-    const n = [
-      Number(r.n1), Number(r.n2), Number(r.n3),
-      Number(r.n4), Number(r.n5), Number(r.n6)
-    ].filter(x=>Number.isFinite(x));
+    let n = [];
+    if (Array.isArray(r.n) && r.n.length === 6){
+      n = r.n.map(Number);
+    } else {
+      n = [r.n1,r.n2,r.n3,r.n4,r.n5,r.n6].map(Number);
+    }
+    n = n.filter(x=>Number.isFinite(x));
 
-    const s = Number(r.s);
-
+    const s = Number(r.s ?? r.second ?? r.n7);
     if (!r.draw_id || n.length !== 6 || !Number.isFinite(s)) continue;
+
     parsed.push({ draw_id: String(r.draw_id), draw_date: d, n, s });
   }
 
@@ -665,7 +665,7 @@ document.getElementById("btnReload").addEventListener("click", async ()=>{
     setConn(true, "已連線（export 成功）");
   } catch(e){
     console.error(e);
-    setConn(false, "連線失敗（請檢查 GAS_BASE）");
+    setConn(false, "連線失敗（請檢查 GAS_BASE 是否正確、以及部署權限）");
     alert(`載入失敗：${e.message}`);
   } finally {
     btn.disabled = false;
@@ -676,24 +676,19 @@ document.getElementById("btnReload").addEventListener("click", async ()=>{
 /** ========= Boot ========= */
 (function init(){
   document.getElementById("alphaVal").textContent = Number(document.getElementById("rngAlpha").value).toFixed(2);
-
-  // show backend info
   document.getElementById("gasTxt").textContent = GAS_BASE;
   document.getElementById("gasTest").textContent = gasActionUrl("export");
 
-  // auto load once
   (async ()=>{
     try{
       await loadRowsFromSheet();
       setConn(true, "已連線（export 成功）");
     } catch(e){
       console.error(e);
-      setConn(false, "連線失敗（請檢查 GAS_BASE 是否為 /exec）");
+      setConn(false, "連線失敗（請檢查 GAS_BASE / 部署權限）");
     }
   })();
 })();
 </script>
 </body>
 </html>
-
-
